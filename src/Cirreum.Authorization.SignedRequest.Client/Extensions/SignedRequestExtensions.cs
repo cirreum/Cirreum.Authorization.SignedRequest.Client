@@ -209,14 +209,30 @@ public static class SignedRequestExtensions {
 			return "/";
 		}
 
-		var path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString.Split('?')[0];
+		string path;
+		string query;
+
+		if (uri.IsAbsoluteUri) {
+			path = uri.AbsolutePath;
+			query = uri.Query;
+		} else {
+			var originalString = uri.OriginalString;
+			var queryIndex = originalString.IndexOf('?');
+			if (queryIndex >= 0) {
+				path = originalString[..queryIndex];
+				query = originalString[queryIndex..];
+			} else {
+				path = originalString;
+				query = string.Empty;
+			}
+		}
 
 		if (string.IsNullOrEmpty(path)) {
 			path = "/";
 		}
 
-		if (includeQueryString && !string.IsNullOrEmpty(uri.Query)) {
-			path += uri.Query;
+		if (includeQueryString && !string.IsNullOrEmpty(query)) {
+			path += query;
 		}
 
 		return path;
@@ -231,54 +247,4 @@ public static class SignedRequestExtensions {
 
 		return $"{version}={signatureValue}";
 	}
-}
-
-/// <summary>
-/// Credentials for signing HTTP requests.
-/// </summary>
-/// <param name="ClientId">The public client identifier.</param>
-/// <param name="SigningSecret">The secret key used for HMAC signature.</param>
-public sealed record SigningCredentials(string ClientId, string SigningSecret);
-
-/// <summary>
-/// Options for signing HTTP requests.
-/// </summary>
-public sealed class SigningOptions {
-
-	/// <summary>
-	/// Default signing options.
-	/// </summary>
-	public static SigningOptions Default { get; } = new();
-
-	/// <summary>
-	/// Gets or sets the signature version. Default is "v1".
-	/// </summary>
-	public string SignatureVersion { get; set; } = "v1";
-
-	/// <summary>
-	/// Gets or sets whether to include the query string in the signature. Default is true.
-	/// </summary>
-	public bool IncludeQueryString { get; set; } = true;
-
-	/// <summary>
-	/// Gets or sets the header name for the client ID. Default is "X-Client-Id".
-	/// </summary>
-	public string ClientIdHeaderName { get; set; } = SignedRequestExtensions.DefaultClientIdHeader;
-
-	/// <summary>
-	/// Gets or sets the header name for the timestamp. Default is "X-Timestamp".
-	/// </summary>
-	public string TimestampHeaderName { get; set; } = SignedRequestExtensions.DefaultTimestampHeader;
-
-	/// <summary>
-	/// Gets or sets the header name for the signature. Default is "X-Signature".
-	/// </summary>
-	public string SignatureHeaderName { get; set; } = SignedRequestExtensions.DefaultSignatureHeader;
-
-	/// <summary>
-	/// Gets or sets the JSON serializer options for request bodies. Default uses camelCase.
-	/// </summary>
-	public JsonSerializerOptions? JsonSerializerOptions { get; set; } = new() {
-		PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-	};
 }

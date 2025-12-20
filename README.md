@@ -1,6 +1,6 @@
 # Cirreum.Authorization.SignedRequest.Client
 
-A lightweight .NET client SDK for HMAC-signed HTTP request authentication. Use this package to sign outgoing HTTP requests for APIs that require signed request authentication.
+A lightweight .NET client SDK for HMAC-signed HTTP request authentication. Sign outgoing HTTP requests and validate incoming webhooks with HMAC-SHA256 signatures.
 
 ## Installation
 
@@ -8,28 +8,32 @@ A lightweight .NET client SDK for HMAC-signed HTTP request authentication. Use t
 dotnet add package Cirreum.Authorization.SignedRequest.Client
 ```
 
-## Quick Start
+## Features
+
+- **Sign outgoing requests** - Add HMAC-SHA256 signatures to HTTP requests
+- **Validate incoming webhooks** - Verify signatures on incoming requests
+- **Allocation-free validation** - Uses `Span<byte>` for efficient body hashing
+- **Customizable headers** - Configure header names and options
+- **ASP.NET Core integration** - Extension methods for `HttpRequest`
+
+## Sending Signed Requests
+
+### Quick Start
 
 ```csharp
 using System.Net.Http;
 
-// Store your credentials securely (e.g., from configuration)
 var credentials = new SigningCredentials("your-client-id", "your-signing-secret");
 
-// Create and sign a request
-var request = new HttpRequestMessage(HttpMethod.Get, "https://api.example.com/data");
-await request.SignRequestAsync(credentials);
-
-// Send the signed request
 using var client = new HttpClient();
-var response = await client.SendAsync(request);
+var response = await client.SendSignedAsync(
+    HttpMethod.Post,
+    "https://api.example.com/orders",
+    credentials,
+    content: new { ProductId = 123, Quantity = 2 });
 ```
 
-## Usage
-
-### Signing a Request
-
-The `SignRequestAsync` extension method adds the required authentication headers to your HTTP request:
+### Sign a Request
 
 ```csharp
 var request = new HttpRequestMessage(HttpMethod.Post, "https://api.example.com/orders");
@@ -40,42 +44,105 @@ await request.SignRequestAsync(credentials);
 
 // Or sign with individual values
 await request.SignRequestAsync("client-id", "signing-secret");
+
+// Then send
+var response = await client.SendAsync(request);
 ```
 
-### Sending Signed Requests
-
-Use the `SendSignedAsync` extension methods on `HttpClient` for a streamlined experience:
+### Send Signed Requests
 
 ```csharp
 using var client = new HttpClient { BaseAddress = new Uri("https://api.example.com") };
 
-// Send a signed GET request
+// Send a signed request
 var request = new HttpRequestMessage(HttpMethod.Get, "/data");
 var response = await client.SendSignedAsync(request, credentials);
 
-// Send a signed POST with JSON body
-var order = new { ProductId = 123, Quantity = 2 };
+// Send with JSON body (auto-serialized)
 var response = await client.SendSignedAsync(
     HttpMethod.Post,
     "/orders",
     credentials,
-    content: order);
+    content: new { ProductId = 123 });
 ```
 
-### Custom Options
-
-Configure signing behavior with `SigningOptions`:
+### Signing Options
 
 ```csharp
 var options = new SigningOptions {
-    IncludeQueryString = true,              // Include query string in signature (default: true)
-    SignatureVersion = "v1",                // Signature version prefix (default: "v1")
-    ClientIdHeaderName = "X-Client-Id",     // Custom header names if needed
+    IncludeQueryString = true,           // Include query string in signature (default: true)
+    SignatureVersion = "v1",             // Signature version prefix (default: "v1")
+    ClientIdHeaderName = "X-Client-Id",  // Custom header names
     TimestampHeaderName = "X-Timestamp",
     SignatureHeaderName = "X-Signature"
 };
 
 await request.SignRequestAsync(credentials, options);
+```
+
+## Receiving Webhooks
+
+### Quick Start
+
+```csharp
+using Microsoft.AspNetCore.Http;
+
+app.MapPost("/webhooks/events", async (HttpRequest request) => {
+    var result = await request.ValidateSignatureAsync("whsec_your_webhook_secret");
+
+    if (!result.IsValid) {
+        return Results.Unauthorized();
+    }
+
+    var clientId = request.GetSignedRequestClientId();
+    // Process webhook...
+
+    return Results.Ok();
+});
+```
+
+### Throw on Invalid Signature
+
+```csharp
+app.MapPost("/webhooks/events", async (HttpRequest request) => {
+    await request.ValidateSignatureOrThrowAsync("whsec_your_webhook_secret");
+
+    // Process webhook - only reached if signature is valid
+    return Results.Ok();
+});
+```
+
+### Validation Options
+
+```csharp
+var options = new ValidationOptions {
+    TimestampTolerance = TimeSpan.FromMinutes(5),      // Max age of requests (default: 5 min)
+    FutureTimestampTolerance = TimeSpan.FromMinutes(1), // Clock skew allowance (default: 1 min)
+    IncludeQueryString = true,                          // Must match sender config
+    SupportedSignatureVersions = ["v1"]                 // Supported versions
+};
+
+var result = await request.ValidateSignatureAsync(secret, options);
+```
+
+### Manual Validation
+
+For non-ASP.NET Core scenarios or custom handling:
+
+```csharp
+var validator = new SignedRequestValidator(options);
+
+var result = validator.Validate(
+    body: bodyBytes,
+    signature: "v1=abc123...",
+    timestamp: 1734567890,
+    httpMethod: "POST",
+    path: "/webhooks/events",
+    signingSecret: "whsec_your_secret");
+
+if (!result.IsValid) {
+    Console.WriteLine($"Validation failed: {result.ErrorMessage}");
+}
 ```
 
 ## How It Works
@@ -89,7 +156,7 @@ The SDK generates signatures using HMAC-SHA256 with the following canonical requ
 Where:
 - **timestamp**: Unix timestamp (seconds since epoch)
 - **method**: HTTP method in uppercase (GET, POST, etc.)
-- **path**: Request path including query string (if enabled)
+- **path**: Request path including query string (if configured)
 - **bodyHash**: SHA256 hash of the request body (or empty string hash for bodyless requests)
 
 Three headers are added to each signed request:
@@ -102,11 +169,12 @@ Three headers are added to each signed request:
 - **Keep your signing secret secure** - never commit it to source control
 - Store credentials in secure configuration (Azure Key Vault, AWS Secrets Manager, etc.)
 - Requests should be sent immediately after signing to avoid timestamp expiration
-- Server-side validation typically allows a 2-minute tolerance for clock skew
+- The default 5-minute timestamp tolerance protects against replay attacks
+- Use separate secrets for API authentication vs webhook validation
 
 ## Requirements
 
-- .NET 10.0 or later (uses C# 14 extension blocks)
+- .NET 10.0 or later
 
 ## License
 
