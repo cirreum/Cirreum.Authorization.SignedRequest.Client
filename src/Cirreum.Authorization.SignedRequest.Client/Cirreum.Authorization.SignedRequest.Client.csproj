@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<RootNamespace>Cirreum.Authorization.SignedRequest</RootNamespace>
+		<Description>Client SDK for HMAC signed request authentication. Use this package to sign HTTP requests for APIs that require signed request authentication.</Description>
+		<PackageTags>cirreum;authorization;signed request;hmac;client;http</PackageTags>
+		<!-- Enable C# 14 extension blocks -->
+		<LangVersion>preview</LangVersion>
+		<EnablePreviewFeatures>true</EnablePreviewFeatures>
+	</PropertyGroup>
+
+
+</Project>
